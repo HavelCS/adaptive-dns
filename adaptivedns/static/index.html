@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AdaptiveDNS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23131a2a'/><circle cx='9' cy='16' r='3' fill='%2312936b'/><circle cx='23' cy='9' r='3' fill='white'/><circle cx='23' cy='23' r='3' fill='white'/><path d='M12 16 20 10M12 16l8 6' stroke='white' stroke-width='2'/></svg>">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8"/><circle class="a" cx="9" cy="16" r="3"/><circle cx="23" cy="9" r="3"/><circle cx="23" cy="23" r="3"/><path d="M12 16 20 10M12 16l8 6"/></svg>
+    <div><h1>AdaptiveDNS</h1><p class="sub">Popularity- and stability-aware caching resolver</p></div>
+  </div>
+  <div class="conn">
+    <span class="pill" id="res-pill"><i></i><span id="res-text">Connecting…</span></span>
+    <span class="pill" id="up-pill" title="Upstream resolver health"><i></i><span id="up-text">Upstream</span></span>
+  </div>
+  <div class="actions">
+    <label class="switch danger" id="outage-wrap" title="Stop the simulated upstream from answering">
+      <input type="checkbox" id="outage"><span class="track"><span class="knob"></span></span><span>Upstream outage</span>
+    </label>
+    <button class="btn primary" id="traffic-btn">Start user traffic</button>
+  </div>
+</header>
+
+<main>
+  <!-- act 1: one lookup, explained -->
+  <section class="panel lookup">
+    <form id="lookup-form" class="lookup-form" autocomplete="off">
+      <label for="qname" class="sr">Domain name</label>
+      <input id="qname" placeholder="example.com" spellcheck="false">
+      <select id="qtype" aria-label="Record type">
+        <option>A</option><option>AAAA</option><option>MX</option><option>TXT</option><option>CNAME</option><option>NS</option>
+      </select>
+      <button class="btn primary big" type="submit">Resolve</button>
+    </form>
+    <div class="chips" id="chips"></div>
+
+    <div id="lookup-empty" class="lookup-empty">
+      <p>Resolve a name to see where the answer comes from. Then resolve it again.</p>
+    </div>
+
+    <div id="lookup-result" hidden>
+      <div class="lr-head">
+        <span class="chip" id="lr-chip"></span>
+        <b class="lr-ms" id="lr-ms"></b>
+        <span class="lr-explain" id="lr-explain"></span>
+      </div>
+      <div class="timeline" id="timeline" aria-label="Where the time went"></div>
+      <div class="lr-grid">
+        <div>
+          <h3>Answer</h3>
+          <table class="rr"><thead><tr><th>Name</th><th>TTL</th><th>Type</th><th>Data</th></tr></thead><tbody id="lr-answers"></tbody></table>
+          <h3 class="mt">What the resolver did</h3>
+          <ol class="steps" id="lr-steps"></ol>
+        </div>
+        <div>
+          <h3>Response packet <span class="muted" id="pkt-size"></span></h3>
+          <div class="hdr" id="pkt-hdr"></div>
+          <div class="hex" id="pkt-hex" aria-label="Response bytes"></div>
+          <div class="hex-legend"><span class="h-hdr">Header</span><span class="h-q">Question</span><span class="h-an">Answers</span><span class="h-rest">Authority / EDNS</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- act 2: live -->
+  <section class="kpis" aria-label="Key figures">
+    <div class="kpi hero"><div class="k-l">Hit ratio</div><div class="k-v" id="k-hit">0%</div><div class="k-f" id="k-hit-f">answered without asking upstream</div></div>
+    <div class="kpi"><div class="k-l">Lookup time</div>
+      <div class="lat"><div><i class="sw HIT"></i>From cache <b id="k-lc">–</b></div><div><i class="sw MISS"></i>From upstream <b id="k-lu">–</b></div></div>
+      <div class="k-f" id="k-lat-f">average of recent lookups</div></div>
+    <div class="kpi"><div class="k-l">Upstream queries saved</div><div class="k-v sm" id="k-saved">0</div><div class="k-f" id="k-saved-f">prefetches included as cost</div></div>
+    <div class="kpi"><div class="k-l">Waiting avoided</div><div class="k-v sm" id="k-time">0 s</div><div class="k-f">upstream time users didn't sit through</div></div>
+    <div class="kpi" id="k-acc-box"><div class="k-l">Answers up to date</div><div class="k-v sm" id="k-acc">–</div><div class="k-f" id="k-acc-f">checked against the authoritative data</div></div>
+  </section>
+
+  <div class="grid">
+    <section class="panel live">
+      <div class="ph">
+        <div><h2>Live queries</h2><p class="hint">Bar length is lookup time on a log scale.</p></div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <div class="q-scale" aria-hidden="true"><span>Time</span><span>Result</span><span>Question</span><div class="axis" id="axis"></div></div>
+      <ol class="qlist" id="qlist"></ol>
+      <div class="empty" id="q-empty">
+        <p><b>No queries yet</b></p>
+        <p class="hint">Press <b>Start user traffic</b>, or point a DNS client at the resolver:</p>
+        <code class="cmd" id="q-cmd"></code>
+      </div>
+    </section>
+
+    <div class="side">
+      <section class="panel">
+        <div class="ph"><h2>Traffic</h2><p class="hint">Per second, last 90 s</p></div>
+        <canvas id="tp" height="150" aria-label="Queries per second"></canvas>
+        <div class="minileg"><span><i class="sw HIT"></i>From cache</span><span><i class="sw MISS"></i>From upstream</span><span><i class="sw SERVFAIL"></i>Failed</span><span><i class="line"></i>Packets sent upstream</span></div>
+      </section>
+      <section class="panel">
+        <div class="ph"><h2>Outcomes</h2></div>
+        <div class="mix" id="mix"></div>
+        <dl class="mixlist" id="mixlist"></dl>
+      </section>
+      <section class="panel">
+        <div class="ph"><h2 id="pol-title">ARC replacement</h2></div>
+        <p class="hint" id="pol-hint"></p>
+        <div id="pol-viz"></div>
+        <div class="fill">
+          <div class="row"><span>Entries</span><span id="f-n"></span></div><div class="meter"><i id="f-bar"></i></div>
+          <div class="row muted"><span>Stretched by learning</span><span id="f-str"></span></div>
+          <div class="row muted"><span>Negative (NXDOMAIN / no data)</span><span id="f-neg"></span></div>
+          <div class="row muted"><span>Evicted</span><span id="f-ev"></span></div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="ph">
+      <div><h2>Algorithm features</h2><p class="hint">Each part of the proposed algorithm can be switched off while traffic runs, to see what it contributes.</p></div>
+      <div class="preset">
+        <button class="btn" data-preset="basic">Basic cache</button>
+        <button class="btn" data-preset="all">Full algorithm</button>
+      </div>
+    </div>
+    <div class="features" id="features"></div>
+  </section>
+
+  <!-- act 3: evaluation -->
+  <section class="panel eval">
+    <div class="ph">
+      <div>
+        <h2>Evaluation</h2>
+        <p class="hint" id="eval-hint">Replays one identical 20-minute workload (Zipf popularity, typos, flash crowds, a 3-minute upstream outage) through each configuration in virtual time.</p>
+      </div>
+      <button class="btn primary" id="eval-btn">Run evaluation</button>
+    </div>
+    <div class="progress" id="eval-prog" hidden><i></i></div>
+    <div id="eval-empty" class="eval-empty">
+      <p>Compares <b>no cache</b>, a <b>basic TTL cache</b> and the <b>proposed adaptive cache</b>, then removes one feature at a time.</p>
+    </div>
+    <div id="eval-out" hidden>
+      <div class="cmp" id="cmp"></div>
+      <h3 class="mt">Ablation: what each feature contributes</h3>
+      <div class="table-wrap"><table class="abl"><thead><tr>
+        <th>Configuration</th><th class="num">Mean latency</th><th class="num">Hit ratio</th><th class="num">Upstream queries</th><th class="num">Outdated (cached)</th><th class="num">Answered in outage</th>
+      </tr></thead><tbody id="abl"></tbody></table></div>
+      <p class="hint mt" id="eval-foot"></p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="ph">
+      <div><h2>Cache contents</h2><p class="hint">Sorted by popularity. Effective TTL is longer than the record's TTL only when the answer has proven stable.</p></div>
+      <input type="search" id="filter" placeholder="Filter names" aria-label="Filter cached names">
+    </div>
+    <div class="table-wrap tall">
+      <table class="entries"><thead><tr>
+        <th data-s="name">Name</th><th data-s="type">Type</th><th>Answer</th><th data-s="segment">List</th>
+        <th data-s="popularity" class="num">Popularity</th><th data-s="ttl">TTL (record → used)</th><th data-s="remaining">Time left</th>
+        <th data-s="changes">Stability</th><th><span class="sr">Remove</span></th>
+      </tr></thead><tbody id="entries"></tbody></table>
+      <p class="empty-row" id="entries-empty">Nothing cached yet.</p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="ph"><h2>Settings</h2></div>
+    <form class="settings" id="settings">
+      <label>Cache capacity (entries)<input type="number" name="max_entries" min="1" max="100000"></label>
+      <label class="wide">Blocked domains<input type="text" name="blocklist" placeholder="ads.example.com, *.tracker.net"></label>
+      <div class="row-actions">
+        <button class="btn primary" type="submit">Save settings</button>
+        <button class="btn" type="button" id="clear">Clear cache</button>
+        <button class="btn" type="button" id="reset">Reset statistics</button>
+      </div>
+    </form>
+  </section>
+</main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="/app.js"></script>
+</body>
+</html>
